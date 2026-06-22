@@ -222,21 +222,10 @@ void mexFunction(int nout, mxArray *out[],
         if (!vlmxIsScalar(optarg) || (x = mxGetScalar(optarg)) < 0) {
           vlmxError(VLMXE_IllegalArgument, "CudnnWorkSpaceLimit is not a non-negative scalar.") ;
         }
-        context.getCudaHelper().setCudnnConvolutionFwdPreference
-        ((x==mxGetInf() ?
-          CUDNN_CONVOLUTION_FWD_PREFER_FASTEST :
-          CUDNN_CONVOLUTION_FWD_SPECIFY_WORKSPACE_LIMIT),
-         (size_t)x) ;
-        context.getCudaHelper().setCudnnConvolutionBwdFilterPreference
-        ((x==mxGetInf() ?
-          CUDNN_CONVOLUTION_BWD_FILTER_PREFER_FASTEST :
-          CUDNN_CONVOLUTION_BWD_FILTER_SPECIFY_WORKSPACE_LIMIT),
-         (size_t)x) ;
-        context.getCudaHelper().setCudnnConvolutionBwdDataPreference
-        ((x==mxGetInf() ?
-          CUDNN_CONVOLUTION_BWD_DATA_PREFER_FASTEST :
-          CUDNN_CONVOLUTION_BWD_DATA_SPECIFY_WORKSPACE_LIMIT),
-         (size_t)x) ;
+        size_t workspaceLimit = (x == mxGetInf()) ? (size_t)-1 : (size_t)x ;
+        context.getCudaHelper().setCudnnConvolutionFwdWorkspaceLimit(workspaceLimit) ;
+        context.getCudaHelper().setCudnnConvolutionBwdFilterWorkspaceLimit(workspaceLimit) ;
+        context.getCudaHelper().setCudnnConvolutionBwdDataWorkspaceLimit(workspaceLimit) ;
         break ;
 #endif
       }

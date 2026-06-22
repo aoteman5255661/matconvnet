@@ -175,30 +175,25 @@ void
 vl::CudaHelper::resetCudnnConvolutionSettings()
 {
   cudnnConvolutionFwdSpecificAlgo = false ;
-  cudnnConvolutionFwdPreference = CUDNN_CONVOLUTION_FWD_SPECIFY_WORKSPACE_LIMIT ;
   cudnnConvolutionFwdAlgo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM ;
   cudnnConvolutionFwdWorkSpaceLimit = 512 * 1024 * 1024 ; // 512MB
   cudnnConvolutionFwdWorkSpaceUsed = 0 ;
 
   cudnnConvolutionBwdFilterSpecificAlgo = false ;
-  cudnnConvolutionBwdFilterPreference = CUDNN_CONVOLUTION_BWD_FILTER_SPECIFY_WORKSPACE_LIMIT ;
   cudnnConvolutionBwdFilterAlgo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0 ;
   cudnnConvolutionBwdFilterWorkSpaceLimit = 512 * 1024 * 1024 ; // 512MB
   cudnnConvolutionBwdFilterWorkSpaceUsed = 0 ;
 
   cudnnConvolutionBwdDataSpecificAlgo = false ;
-  cudnnConvolutionBwdDataPreference = CUDNN_CONVOLUTION_BWD_DATA_SPECIFY_WORKSPACE_LIMIT ;
   cudnnConvolutionBwdDataAlgo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_0 ;
   cudnnConvolutionBwdDataWorkSpaceLimit = 512 * 1024 * 1024 ; // 512MB
   cudnnConvolutionBwdDataWorkSpaceUsed = 0 ;
 }
 
 void
-vl::CudaHelper::setCudnnConvolutionFwdPreference(cudnnConvolutionFwdPreference_t x,
-                                                 size_t workSpaceLimit)
+vl::CudaHelper::setCudnnConvolutionFwdWorkspaceLimit(size_t workSpaceLimit)
 {
   cudnnConvolutionFwdSpecificAlgo = false ;
-  cudnnConvolutionFwdPreference = x ;
   cudnnConvolutionFwdWorkSpaceLimit = workSpaceLimit ;
 }
 
@@ -216,11 +211,9 @@ vl::CudaHelper::getCudnnConvolutionFwdWorkSpaceUsed() const
 }
 
 void
-vl::CudaHelper::setCudnnConvolutionBwdFilterPreference(cudnnConvolutionBwdFilterPreference_t x,
-                                                       size_t workSpaceLimit)
+vl::CudaHelper::setCudnnConvolutionBwdFilterWorkspaceLimit(size_t workSpaceLimit)
 {
   cudnnConvolutionBwdFilterSpecificAlgo = false ;
-  cudnnConvolutionBwdFilterPreference = x ;
   cudnnConvolutionBwdFilterWorkSpaceLimit = workSpaceLimit ;
 }
 
@@ -239,11 +232,9 @@ vl::CudaHelper::getCudnnConvolutionBwdFilterWorkSpaceUsed() const
 }
 
 void
-vl::CudaHelper::setCudnnConvolutionBwdDataPreference(cudnnConvolutionBwdDataPreference_t x,
-                                                     size_t workSpaceLimit)
+vl::CudaHelper::setCudnnConvolutionBwdDataWorkspaceLimit(size_t workSpaceLimit)
 {
   cudnnConvolutionBwdDataSpecificAlgo = false ;
-  cudnnConvolutionBwdDataPreference = x ;
   cudnnConvolutionBwdDataWorkSpaceLimit = workSpaceLimit ;
 }
 
@@ -381,6 +372,5 @@ vl::CudaHelper::getLastCudaErrorMessage() const
 {
   return lastCudaErrorMessage ;
 }
-
 
 

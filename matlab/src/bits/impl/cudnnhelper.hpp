@@ -15,6 +15,7 @@ the terms of the BSD license (see the COPYING file).
 
 #include "cudnn.h"
 #include "assert.h"
+#include <vector>
 
 #define COMMA ,
 
@@ -62,6 +63,133 @@ namespace vl { namespace impl {
       case VLDT_Double: return DataTypeToCudnn<vl::VLDT_Double>::dataType ;
       default: assert(false) ; return CUDNN_DATA_FLOAT ; // bogus
     }
+  }
+
+  template <typename Performance, typename Algorithm>
+  inline cudnnStatus_t selectCudnnAlgorithm(Performance const* results,
+                                            int count,
+                                            size_t workspaceLimit,
+                                            Algorithm* algorithm)
+  {
+    int best = -1 ;
+    for (int i = 0 ; i < count ; ++i) {
+      if (results[i].status == CUDNN_STATUS_SUCCESS &&
+          results[i].memory <= workspaceLimit &&
+          (best < 0 || results[i].time < results[best].time)) {
+        best = i ;
+      }
+    }
+    if (best < 0) return CUDNN_STATUS_NOT_SUPPORTED ;
+    *algorithm = results[best].algo ;
+    return CUDNN_STATUS_SUCCESS ;
+  }
+
+  inline cudnnStatus_t getCudnnConvolutionForwardAlgorithm(
+    cudnnHandle_t handle,
+    cudnnTensorDescriptor_t srcDesc,
+    cudnnFilterDescriptor_t filterDesc,
+    cudnnConvolutionDescriptor_t convDesc,
+    cudnnTensorDescriptor_t destDesc,
+    size_t workspaceLimit,
+    cudnnConvolutionFwdAlgo_t* algorithm)
+  {
+#if CUDNN_VERSION >= 7000
+    int maxCount = 0 ;
+    cudnnStatus_t status =
+      cudnnGetConvolutionForwardAlgorithmMaxCount(handle, &maxCount) ;
+    if (status != CUDNN_STATUS_SUCCESS) return status ;
+    if (maxCount <= 0) return CUDNN_STATUS_NOT_SUPPORTED ;
+    std::vector<cudnnConvolutionFwdAlgoPerf_t> results(maxCount) ;
+    int returnedCount = 0 ;
+    status = cudnnGetConvolutionForwardAlgorithm_v7(handle,
+                                                     srcDesc,
+                                                     filterDesc,
+                                                     convDesc,
+                                                     destDesc,
+                                                     maxCount,
+                                                     &returnedCount,
+                                                     &results[0]) ;
+    if (status != CUDNN_STATUS_SUCCESS) return status ;
+    return selectCudnnAlgorithm(&results[0], returnedCount,
+                                workspaceLimit, algorithm) ;
+#else
+    return cudnnGetConvolutionForwardAlgorithm(
+      handle, srcDesc, filterDesc, convDesc, destDesc,
+      CUDNN_CONVOLUTION_FWD_SPECIFY_WORKSPACE_LIMIT,
+      workspaceLimit, algorithm) ;
+#endif
+  }
+
+  inline cudnnStatus_t getCudnnConvolutionBackwardFilterAlgorithm(
+    cudnnHandle_t handle,
+    cudnnTensorDescriptor_t srcDesc,
+    cudnnTensorDescriptor_t diffDesc,
+    cudnnConvolutionDescriptor_t convDesc,
+    cudnnFilterDescriptor_t gradDesc,
+    size_t workspaceLimit,
+    cudnnConvolutionBwdFilterAlgo_t* algorithm)
+  {
+#if CUDNN_VERSION >= 7000
+    int maxCount = 0 ;
+    cudnnStatus_t status =
+      cudnnGetConvolutionBackwardFilterAlgorithmMaxCount(handle, &maxCount) ;
+    if (status != CUDNN_STATUS_SUCCESS) return status ;
+    if (maxCount <= 0) return CUDNN_STATUS_NOT_SUPPORTED ;
+    std::vector<cudnnConvolutionBwdFilterAlgoPerf_t> results(maxCount) ;
+    int returnedCount = 0 ;
+    status = cudnnGetConvolutionBackwardFilterAlgorithm_v7(handle,
+                                                            srcDesc,
+                                                            diffDesc,
+                                                            convDesc,
+                                                            gradDesc,
+                                                            maxCount,
+                                                            &returnedCount,
+                                                            &results[0]) ;
+    if (status != CUDNN_STATUS_SUCCESS) return status ;
+    return selectCudnnAlgorithm(&results[0], returnedCount,
+                                workspaceLimit, algorithm) ;
+#else
+    return cudnnGetConvolutionBackwardFilterAlgorithm(
+      handle, srcDesc, diffDesc, convDesc, gradDesc,
+      CUDNN_CONVOLUTION_BWD_FILTER_SPECIFY_WORKSPACE_LIMIT,
+      workspaceLimit, algorithm) ;
+#endif
+  }
+
+  inline cudnnStatus_t getCudnnConvolutionBackwardDataAlgorithm(
+    cudnnHandle_t handle,
+    cudnnFilterDescriptor_t filterDesc,
+    cudnnTensorDescriptor_t diffDesc,
+    cudnnConvolutionDescriptor_t convDesc,
+    cudnnTensorDescriptor_t gradDesc,
+    size_t workspaceLimit,
+    cudnnConvolutionBwdDataAlgo_t* algorithm)
+  {
+#if CUDNN_VERSION >= 7000
+    int maxCount = 0 ;
+    cudnnStatus_t status =
+      cudnnGetConvolutionBackwardDataAlgorithmMaxCount(handle, &maxCount) ;
+    if (status != CUDNN_STATUS_SUCCESS) return status ;
+    if (maxCount <= 0) return CUDNN_STATUS_NOT_SUPPORTED ;
+    std::vector<cudnnConvolutionBwdDataAlgoPerf_t> results(maxCount) ;
+    int returnedCount = 0 ;
+    status = cudnnGetConvolutionBackwardDataAlgorithm_v7(handle,
+                                                          filterDesc,
+                                                          diffDesc,
+                                                          convDesc,
+                                                          gradDesc,
+                                                          maxCount,
+                                                          &returnedCount,
+                                                          &results[0]) ;
+    if (status != CUDNN_STATUS_SUCCESS) return status ;
+    return selectCudnnAlgorithm(&results[0], returnedCount,
+                                workspaceLimit, algorithm) ;
+#else
+    return cudnnGetConvolutionBackwardDataAlgorithm(
+      handle, filterDesc, diffDesc, convDesc, gradDesc,
+      CUDNN_CONVOLUTION_BWD_DATA_SPECIFY_WORKSPACE_LIMIT,
+      workspaceLimit, algorithm) ;
+#endif
   }
 
 //  vl::ErrorCode createCudnnDescriptorFromTensor(Context & context,

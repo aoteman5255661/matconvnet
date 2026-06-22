@@ -86,18 +86,15 @@ namespace vl {
     // Convolution parameters
     void resetCudnnConvolutionSettings() ;
     void setCudnnConvolutionFwdAlgo(cudnnConvolutionFwdAlgo_t x) ;
-    void setCudnnConvolutionFwdPreference(cudnnConvolutionFwdPreference_t x,
-                                          size_t workSpaceLimit = 0) ;
+    void setCudnnConvolutionFwdWorkspaceLimit(size_t workSpaceLimit) ;
     size_t getCudnnConvolutionFwdWorkSpaceUsed() const ;
 
     void setCudnnConvolutionBwdFilterAlgo(cudnnConvolutionBwdFilterAlgo_t x) ;
-    void setCudnnConvolutionBwdFilterPreference(cudnnConvolutionBwdFilterPreference_t x,
-                                                size_t workSpaceLimit = 0) ;
+    void setCudnnConvolutionBwdFilterWorkspaceLimit(size_t workSpaceLimit) ;
     size_t getCudnnConvolutionBwdFilterWorkSpaceUsed() const ;
 
     void setCudnnConvolutionBwdDataAlgo(cudnnConvolutionBwdDataAlgo_t x) ;
-    void setCudnnConvolutionBwdDataPreference(cudnnConvolutionBwdDataPreference_t x,
-                                              size_t workSpaceLimit = 0) ;
+    void setCudnnConvolutionBwdDataWorkspaceLimit(size_t workSpaceLimit) ;
     size_t getCudnnConvolutionBwdDataWorkSpaceUsed() const ;
 
     cudnnStatus_t getLastCudnnError() const ;
@@ -138,19 +135,16 @@ namespace vl {
     bool cudnnEnabled ;
 
     bool cudnnConvolutionFwdSpecificAlgo ;
-    cudnnConvolutionFwdPreference_t cudnnConvolutionFwdPreference ;
     cudnnConvolutionFwdAlgo_t cudnnConvolutionFwdAlgo ;
     size_t cudnnConvolutionFwdWorkSpaceLimit ;
     size_t cudnnConvolutionFwdWorkSpaceUsed  ;
 
     bool cudnnConvolutionBwdFilterSpecificAlgo ;
-    cudnnConvolutionBwdFilterPreference_t  cudnnConvolutionBwdFilterPreference;
     cudnnConvolutionBwdFilterAlgo_t cudnnConvolutionBwdFilterAlgo ;
     size_t cudnnConvolutionBwdFilterWorkSpaceLimit ;
     size_t cudnnConvolutionBwdFilterWorkSpaceUsed  ;
 
     bool cudnnConvolutionBwdDataSpecificAlgo ;
-    cudnnConvolutionBwdDataPreference_t cudnnConvolutionBwdDataPreference ;
     cudnnConvolutionBwdDataAlgo_t cudnnConvolutionBwdDataAlgo ;
     size_t cudnnConvolutionBwdDataWorkSpaceLimit ;
     size_t cudnnConvolutionBwdDataWorkSpaceUsed  ;

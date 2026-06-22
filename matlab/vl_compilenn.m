@@ -128,9 +128,9 @@ function vl_compilenn(varargin)
 %   versionconstraints between MATLAB, CUDA, and the compiler) should
 %   work:
 %
-%   * Windows 10 x64, MATLAB R2015b, Visual C++ 2015, CUDA
-%     Toolkit 8.0. Visual C++ 2013 and lower is not supported due to lack
-%     C++11 support.
+%   * Windows x64, a Visual C++ compiler supported by both MATLAB and
+%     the selected CUDA toolkit, and CUDA Toolkit 7.5 or newer. CUDA
+%     12.8 requires Visual Studio 2019 or 2022 and the `nvcc` method.
 %   * macOS X 10.12, MATLAB R2016a, Xcode 7.3.1, CUDA
 %     Toolkit 7.5-8.0.
 %   * GNU/Linux, MATALB R2015b, gcc/g++ 4.8.5+, CUDA Toolkit 7.5-8.0.
@@ -180,14 +180,18 @@ opts.debug            = false;
 opts.cudaMethod       = [] ;
 opts.cudaRoot         = [] ;
 opts.cudaArch         = [] ;
-opts.defCudaArch      = [...
-  '-gencode=arch=compute_20,code=\"sm_20,compute_20\" '...
-  '-gencode=arch=compute_30,code=\"sm_30,compute_30\"'];
+% Leave this empty so that unsupported legacy architectures are never
+% passed to recent CUDA toolkits. get_cuda_arch() derives a fallback from
+% the architectures reported by NVCC.
+opts.defCudaArch      = '' ;
 opts.mexConfig        = '' ;
 opts.mexCudaConfig    = '' ;
 opts.cudnnRoot        = 'local/cudnn' ;
 opts.preCompileFn       = [] ;
 opts = vl_argparse(opts, varargin);
+if opts.enableCudnn && ~opts.enableGpu
+  error('CuDNN support requires EnableGpu to be true.') ;
+end
 
 % --------------------------------------------------------------------
 %                                                     Files to compile
@@ -280,11 +284,15 @@ if opts.enableGpu
   opts.verbose && fprintf('%s:\tCUDA: using CUDA Devkit ''%s''.\n', ...
                           mfilename, opts.cudaRoot) ;
 
-  opts.nvccPath = fullfile(opts.cudaRoot, 'bin', 'nvcc') ;
   switch arch
-    case 'win64', opts.cudaLibDir = fullfile(opts.cudaRoot, 'lib', 'x64') ;
+    case 'win64'
+      opts.nvccPath = fullfile(opts.cudaRoot, 'bin', 'nvcc.exe') ;
+      opts.cudaLibDir = fullfile(opts.cudaRoot, 'lib', 'x64') ;
     case 'maci64', opts.cudaLibDir = fullfile(opts.cudaRoot, 'lib') ;
     case 'glnxa64', opts.cudaLibDir = fullfile(opts.cudaRoot, 'lib64') ;
+  end
+  if ~isfield(opts, 'nvccPath')
+    opts.nvccPath = fullfile(opts.cudaRoot, 'bin', 'nvcc') ;
   end
 
   % Set the nvcc method as default for Win platforms
@@ -294,6 +302,7 @@ if opts.enableGpu
 
   % Activate the CUDA Devkit
   cuver = activate_nvcc(opts.nvccPath) ;
+  opts.nvccVersion = cuver ;
   opts.verbose && fprintf('%s:\tCUDA: using NVCC ''%s'' (%d).\n', ...
                           mfilename, opts.nvccPath, cuver) ;
 
@@ -306,9 +315,34 @@ end
 if opts.enableCudnn
   opts.cudnnIncludeDir = fullfile(opts.cudnnRoot, 'include') ;
   switch arch
-    case 'win64', opts.cudnnLibDir = fullfile(opts.cudnnRoot, 'lib', 'x64') ;
+    case 'win64'
+      opts.cudnnLibDir = fullfile(opts.cudnnRoot, 'lib', 'x64') ;
+      opts.cudnnBinDir = fullfile(opts.cudnnRoot, 'bin') ;
     case 'maci64', opts.cudnnLibDir = fullfile(opts.cudnnRoot, 'lib') ;
     case 'glnxa64', opts.cudnnLibDir = fullfile(opts.cudnnRoot, 'lib64') ;
+  end
+  if ~exist(fullfile(opts.cudnnIncludeDir, 'cudnn.h'), 'file')
+    error('Could not find cudnn.h under ''%s''.', opts.cudnnIncludeDir) ;
+  end
+  if strcmp(arch, 'win64')
+    if ~exist(fullfile(opts.cudnnLibDir, 'cudnn.lib'), 'file')
+      error('Could not find cudnn.lib under ''%s''.', opts.cudnnLibDir) ;
+    end
+    if isempty(dir(fullfile(opts.cudnnBinDir, '*.dll')))
+      error('Could not find CuDNN DLLs under ''%s''.', opts.cudnnBinDir) ;
+    end
+  end
+  opts.cudnnVersion = get_cudnn_version(opts.cudnnIncludeDir) ;
+  if opts.verbose
+    if opts.cudnnVersion > 0
+      fprintf('%s:\tCuDNN: using version %d.%d.%d from ''%s''.\n', ...
+        mfilename, floor(opts.cudnnVersion / 10000), ...
+        floor(mod(opts.cudnnVersion, 10000) / 100), ...
+        mod(opts.cudnnVersion, 100), opts.cudnnRoot) ;
+    else
+      fprintf('%s:\tCuDNN: using headers from ''%s''.\n', ...
+        mfilename, opts.cudnnRoot) ;
+    end
   end
 end
 
@@ -364,8 +398,10 @@ flags.mexlink_linklibs = {} ;
 % NVCC: Additional flags passed to `nvcc` for compiling CUDA code.
 flags.nvcc = {'-D_FORCE_INLINES', '--std=c++11', ...
   sprintf('-I"%s"',fullfile(matlabroot,'extern','include')), ...
-  sprintf('-I"%s"',fullfile(toolboxdir('distcomp'),'gpu','extern','include')), ...
-  opts.cudaArch} ;
+  sprintf('-I"%s"',fullfile(toolboxdir('distcomp'),'gpu','extern','include'))} ;
+if ~isempty(opts.cudaArch)
+  flags.nvcc{end+1} = opts.cudaArch ;
+end
 
 switch arch
   case {'maci64','glnxa64'}
@@ -377,7 +413,7 @@ switch arch
       flags.nvcc{end+1} = '--compiler-options=-mssse3,-ffast-math' ;
     end
   case 'win64'
-    % Visual Studio 2015 does C++11 without futher switches
+    % MSVC supports the requested C++ dialect without further switches.
 end
 
 if opts.enableGpu
@@ -423,9 +459,11 @@ switch arch
   case {'win64'}
     % VisualC does not pass this even if available in the CPU architecture
     flags.mex{end+1} = '-D__SSSE3__' ;
-    cl_path = fileparts(check_clpath()); % check whether cl.exe in path
-    flags.nvcc{end+1} = '--compiler-options=/MD' ;
-    flags.nvcc{end+1} = sprintf('--compiler-bindir="%s"', cl_path) ;
+    if opts.enableGpu && strcmp(opts.cudaMethod, 'nvcc')
+      cl_path = check_clpath() ;
+      flags.nvcc{end+1} = '--compiler-options=/MD' ;
+      flags.nvcc{end+1} = sprintf('--compiler-bindir="%s"', cl_path) ;
+    end
 end
 
 if opts.enableImreadJpeg
@@ -504,8 +542,14 @@ end
 vl_setupnn() ;
 
 if strcmp(arch, 'win64') && opts.enableCudnn
-  if opts.verbose(), fprintf('Copying CuDNN dll to mex folder.\n'); end
-  copyfile(fullfile(opts.cudnnRoot, 'bin', '*.dll'), flags.mex_dir);
+  dlls = dir(fullfile(opts.cudnnBinDir, '*.dll')) ;
+  if isempty(dlls)
+    error('Could not find CuDNN DLLs under ''%s''.', opts.cudnnBinDir) ;
+  end
+  if opts.verbose, fprintf('Copying CuDNN DLLs to mex folder.\n'); end
+  for i = 1:numel(dlls)
+    copyfile(fullfile(opts.cudnnBinDir, dlls(i).name), flags.mex_dir) ;
+  end
 end
 
 % Save the last compile flags to the build dir
@@ -640,24 +684,82 @@ end
 % --------------------------------------------------------------------
 function cl_path = check_clpath()
 % --------------------------------------------------------------------
-% Checks whether the cl.exe is in the path (needed for the nvcc). If
-% not, tries to guess the location out of mex configuration.
-cc = mex.getCompilerConfigurations('c++');
-cl_path = fullfile(cc.Location, 'VC', 'bin', 'amd64');
-[status, ~] = system('cl.exe -help');
-if status == 1
-  % Add cl.exe to system path so that nvcc can find it.
-  warning('CL.EXE not found in PATH. Trying to guess out of mex setup.');
-  prev_path = getenv('PATH');
-  setenv('PATH', [prev_path ';' cl_path]);
-  status = system('cl.exe');
-  if status == 1
-    setenv('PATH', prev_path);
-    error('Unable to find cl.exe');
-  else
-    fprintf('Location of cl.exe (%s) successfully added to your PATH.\n', ...
-      cl_path);
+% Locate the 64-bit MSVC host compiler used by NVCC. Visual Studio 2017
+% and newer use VC/Tools/MSVC/<version>/bin/Hostx64/x64 rather than the
+% legacy VS2015 VC/bin/amd64 directory.
+cl_exe = '' ;
+[status, output] = system('where cl.exe') ;
+if status == 0
+  paths = split_command_output(output) ;
+  for i = 1:numel(paths)
+    normalized = lower(strrep(paths{i}, '/', '\')) ;
+    if ~isempty(strfind(normalized, '\hostx64\x64\')) || ...
+       ~isempty(strfind(normalized, '\amd64\'))
+      cl_exe = paths{i} ;
+      break ;
+    end
   end
+  if isempty(cl_exe) && ~isempty(paths), cl_exe = paths{1} ; end
+end
+
+if isempty(cl_exe)
+  warning('CL.EXE not found in PATH. Trying to locate the compiler configured for MEX.');
+  cc = mex.getCompilerConfigurations('C++') ;
+  if isempty(cc), error('No Visual C++ compiler is configured for MEX.') ; end
+  cc = cc(1) ;
+
+  roots = {getenv('VCToolsInstallDir'), cc.Location, getenv('VSINSTALLDIR')} ;
+  candidates = {} ;
+  for i = 1:numel(roots)
+    root = roots{i} ;
+    if isempty(root), continue ; end
+    candidates{end+1} = fullfile(root, 'bin', 'Hostx64', 'x64', 'cl.exe') ;
+    candidates{end+1} = fullfile(root, 'VC', 'bin', 'amd64', 'cl.exe') ;
+    candidates{end+1} = fullfile(root, 'VC', 'bin', 'x86_amd64', 'cl.exe') ;
+
+    toolsets = dir(fullfile(root, 'VC', 'Tools', 'MSVC', '*')) ;
+    toolsets = toolsets([toolsets.isdir]) ;
+    names = {toolsets.name} ;
+    names = names(~ismember(names, {'.', '..'})) ;
+    [~, order] = sort(names) ;
+    order = fliplr(order) ;
+    for j = order
+      candidates{end+1} = fullfile(root, 'VC', 'Tools', 'MSVC', ...
+        names{j}, 'bin', 'Hostx64', 'x64', 'cl.exe') ;
+    end
+  end
+
+  programFilesX86 = getenv('ProgramFiles(x86)') ;
+  vswhere = fullfile(programFilesX86, 'Microsoft Visual Studio', ...
+    'Installer', 'vswhere.exe') ;
+  if exist(vswhere, 'file')
+    command = sprintf(['"%s" -latest -products * ' ...
+      '-requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 ' ...
+      '-find VC\\Tools\\MSVC\\**\\bin\\Hostx64\\x64\\cl.exe'], vswhere) ;
+    [status, output] = system(command) ;
+    if status == 0
+      candidates = horzcat(split_command_output(output), candidates) ;
+    end
+  end
+
+  for i = 1:numel(candidates)
+    if exist(candidates{i}, 'file')
+      cl_exe = candidates{i} ;
+      break ;
+    end
+  end
+end
+
+if isempty(cl_exe)
+  error(['Unable to find a 64-bit cl.exe. Install Visual Studio 2019 or ' ...
+    '2022 with the Desktop development with C++ workload, then run mex -setup C++.']) ;
+end
+
+cl_path = fileparts(cl_exe) ;
+path_entries = regexp(getenv('PATH'), ';', 'split') ;
+if ~any(strcmpi(path_entries, cl_path))
+  setenv('PATH', [cl_path ';' getenv('PATH')]) ;
+  fprintf('Location of cl.exe (%s) added to your PATH.\n', cl_path) ;
 end
 
 % -------------------------------------------------------------------------
@@ -665,12 +767,14 @@ function paths = which_nvcc()
 % -------------------------------------------------------------------------
 switch computer('arch')
   case 'win64'
-    [~, paths] = system('where nvcc.exe');
-    paths = strtrim(paths);
-    paths = paths(strfind(paths, '.exe'));
+    [status, output] = system('where nvcc.exe') ;
   case {'maci64', 'glnxa64'}
-    [~, paths] = system('which nvcc');
-    paths = strtrim(paths) ;
+    [status, output] = system('which nvcc') ;
+end
+if status == 0
+  paths = split_command_output(output) ;
+else
+  paths = {} ;
 end
 
 % -------------------------------------------------------------------------
@@ -681,10 +785,21 @@ function cuda_root = search_cuda_devkit(opts)
 opts.verbose && fprintf(['%s:\tCUDA: searching for the CUDA Devkit' ...
                     ' (use the option ''CudaRoot'' to override):\n'], mfilename);
 
-% Propose a number of candidate paths for NVCC
+% Propose a number of candidate paths for NVCC.
 paths = {getenv('MW_NVCC_PATH')} ;
 paths = [paths, which_nvcc()] ;
-for v = {'5.5', '6.0', '6.5', '7.0', '7.5', '8.0', '8.5', '9.0', '9.5', '10.0'}
+if strcmp(computer('arch'), 'win64')
+  cudaRoots = {getenv('CUDA_PATH'), getenv('CUDA_PATH_V12_8')} ;
+  for i = 1:numel(cudaRoots)
+    if ~isempty(cudaRoots{i})
+      paths{end+1} = fullfile(cudaRoots{i}, 'bin', 'nvcc.exe') ;
+    end
+  end
+end
+for v = {'5.5', '6.0', '6.5', '7.0', '7.5', '8.0', '8.5', '9.0', ...
+         '9.5', '10.0', '10.1', '10.2', '11.0', '11.1', '11.2', ...
+         '11.3', '11.4', '11.5', '11.6', '11.7', '11.8', '12.0', ...
+         '12.1', '12.2', '12.3', '12.4', '12.5', '12.6', '12.8'}
   switch computer('arch')
     case 'glnxa64'
       paths{end+1} = sprintf('/usr/local/cuda-%s/bin/nvcc', char(v)) ;
@@ -694,7 +809,11 @@ for v = {'5.5', '6.0', '6.5', '7.0', '7.5', '8.0', '8.5', '9.0', '9.5', '10.0'}
       paths{end+1} = sprintf('C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v%s\\bin\\nvcc.exe', char(v)) ;
   end
 end
-paths{end+1} = sprintf('/usr/local/cuda/bin/nvcc') ;
+if strcmp(computer('arch'), 'glnxa64')
+  paths{end+1} = '/usr/local/cuda/bin/nvcc' ;
+end
+paths = paths(~cellfun('isempty', paths)) ;
+paths = unique(paths, 'stable') ;
 
 % Validate each candidate NVCC path
 for i=1:numel(paths)
@@ -726,15 +845,22 @@ end
 % -------------------------------------------------------------------------
 function [valid, cuver]  = validate_nvcc(nvccPath)
 % -------------------------------------------------------------------------
+if isempty(nvccPath)
+  valid = false ;
+  cuver = 0 ;
+  return ;
+end
 [status, output] = system(sprintf('"%s" --version', nvccPath)) ;
 valid = (status == 0) ;
 if ~valid
   cuver = 0 ;
   return ;
 end
-match = regexp(output, 'V(\d+\.\d+\.\d+)', 'match') ;
-if isempty(match), valid = false ; return ; end
-cuver = [1e4 1e2 1] * sscanf(match{1}, 'V%d.%d.%d') ;
+match = regexp(output, 'V(\d+)\.(\d+)(?:\.(\d+))?', 'tokens', 'once') ;
+if isempty(match), valid = false ; cuver = 0 ; return ; end
+version = cellfun(@str2double, match) ;
+if numel(version) < 3, version(3) = 0 ; end
+cuver = [1e4 1e2 1] * version(:) ;
 
 % --------------------------------------------------------------------
 function cuver = activate_nvcc(nvccPath)
@@ -780,31 +906,87 @@ function cudaArch = get_cuda_arch(opts)
 % --------------------------------------------------------------------
 opts.verbose && fprintf('%s:\tCUDA: determining GPU compute capability (use the ''CudaArch'' option to override)\n', mfilename);
 try
-  gpu_device = gpuDevice();
-  arch = str2double(strrep(gpu_device.ComputeCapability, '.', ''));
-  supparchs = get_nvcc_supported_archs(opts.nvccPath);
-  [~, archi] = max(min(supparchs - arch, 0));
-  arch_code = num2str(supparchs(archi));
-  assert(~isempty(arch_code));
-  cudaArch = ...
-      sprintf('-gencode=arch=compute_%s,code=\\\"sm_%s,compute_%s\\\" ', ...
-              arch_code, arch_code, arch_code) ;
-catch
-  opts.verbose && fprintf(['%s:\tCUDA: cannot determine the capabilities of the installed GPU and/or CUDA; ' ...
-                      'falling back to default\n'], mfilename);
-  cudaArch = opts.defCudaArch;
+  supparchs = get_nvcc_supported_archs(opts.nvccPath) ;
+catch exception
+  opts.verbose && fprintf(['%s:\tCUDA: cannot query NVCC architectures (%s); ' ...
+                      'using the configured fallback\n'], mfilename, exception.message) ;
+  cudaArch = opts.defCudaArch ;
+  return ;
 end
+try
+  gpu_device = gpuDevice() ;
+  capability = gpu_device.ComputeCapability ;
+  if isnumeric(capability)
+    arch = round(10 * double(capability)) ;
+  else
+    parts = sscanf(char(capability), '%d.%d') ;
+    assert(numel(parts) == 2) ;
+    arch = parts(1) * 10 + parts(2) ;
+  end
+  compatible = supparchs(supparchs <= arch) ;
+  assert(~isempty(compatible)) ;
+  arch = max(compatible) ;
+catch
+  if isempty(supparchs)
+    opts.verbose && fprintf(['%s:\tCUDA: cannot determine the capabilities of the installed GPU or CUDA; ' ...
+                        'using the configured fallback\n'], mfilename) ;
+    cudaArch = opts.defCudaArch ;
+    return ;
+  end
+  arch = min(supparchs) ;
+  opts.verbose && fprintf(['%s:\tCUDA: cannot determine the installed GPU capability; ' ...
+                      'using NVCC''s lowest supported architecture sm_%d with PTX\n'], ...
+                      mfilename, arch) ;
+end
+cudaArch = sprintf(['-gencode=arch=compute_%d,code=sm_%d ' ...
+                    '-gencode=arch=compute_%d,code=compute_%d'], ...
+                    arch, arch, arch, arch) ;
 
 % --------------------------------------------------------------------
 function archs = get_nvcc_supported_archs(nvccPath)
 % --------------------------------------------------------------------
-switch computer('arch')
-  case {'win64'}
-    [status, hstring] = system(sprintf('"%s" --help',nvccPath));
-  otherwise
-    % fix possible output corruption (see manual)
-    [status, hstring] = system(sprintf('"%s" --help < /dev/null',nvccPath)) ;
+[status, hstring] = system(sprintf('"%s" --list-gpu-code', nvccPath)) ;
+if status ~= 0
+  switch computer('arch')
+    case {'win64'}
+      [status, hstring] = system(sprintf('"%s" --help', nvccPath)) ;
+    otherwise
+      % Fix possible output corruption on older NVCC versions.
+      [status, hstring] = system(sprintf('"%s" --help < /dev/null', nvccPath)) ;
+  end
 end
-archs = regexp(hstring, '''sm_(\d{2})''', 'tokens');
-archs = cellfun(@(a) str2double(a{1}), archs);
-if status, error('NVCC command failed: %s', hstring); end;
+if status, error('NVCC command failed: %s', hstring) ; end
+archs = regexp(hstring, 'sm_(\d+)', 'tokens') ;
+archs = unique(cellfun(@(a) str2double(a{1}), archs)) ;
+if isempty(archs)
+  error('NVCC did not report any supported GPU architectures.') ;
+end
+
+% --------------------------------------------------------------------
+function lines = split_command_output(output)
+% --------------------------------------------------------------------
+output = strtrim(output) ;
+if isempty(output)
+  lines = {} ;
+else
+  lines = regexp(output, '\r\n|\n|\r', 'split') ;
+  lines = lines(~cellfun('isempty', lines)) ;
+end
+
+% --------------------------------------------------------------------
+function version = get_cudnn_version(includeDir)
+% --------------------------------------------------------------------
+version = 0 ;
+header = fullfile(includeDir, 'cudnn_version.h') ;
+if ~exist(header, 'file')
+  header = fullfile(includeDir, 'cudnn.h') ;
+end
+contents = fileread(header) ;
+major = regexp(contents, '#define\s+CUDNN_MAJOR\s+(\d+)', 'tokens', 'once') ;
+minor = regexp(contents, '#define\s+CUDNN_MINOR\s+(\d+)', 'tokens', 'once') ;
+patch = regexp(contents, '#define\s+CUDNN_PATCHLEVEL\s+(\d+)', 'tokens', 'once') ;
+if ~isempty(major) && ~isempty(minor) && ~isempty(patch)
+  version = str2double(major{1}) * 10000 + ...
+            str2double(minor{1}) * 100 + ...
+            str2double(patch{1}) ;
+end

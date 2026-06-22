@@ -169,6 +169,25 @@ is to start MATLAB from the command line (terminal) specifying the
 On Windows, chances are that the CUDA libraries are already visible to
 MATLAB so that nothing else needs to be done.
 
+#### Windows with CUDA 12.8
+
+CUDA 12.8 builds must use the `nvcc` method and a 64-bit Visual Studio
+2019 or Visual Studio 2022 C++ compiler. Configure the compiler first
+with `mex -setup C++`, then compile with:
+
+    > vl_compilenn('enableGpu', true, ...
+                   'cudaRoot', 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8', ...
+                   'cudaMethod', 'nvcc', ...
+                   'verbose', 1)
+
+If `CUDA_PATH` points to CUDA 12.8, the `cudaRoot` option may be omitted.
+The build script queries `nvcc` for its supported GPU architectures, so
+it does not pass the `sm_20` or `sm_30` targets removed from recent CUDA
+toolkits. To target a specific GPU explicitly, pass a `cudaArch` value
+such as:
+
+    -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_89,code=compute_89
+
 On macOS, this step should not be necessary as the library paths are
 hardcoded during compilation.
 
@@ -177,15 +196,34 @@ hardcoded during compilation.
 
 MatConvNet supports the NVIDIA <a
 href='https://developer.nvidia.com/cuDNN'>cuDNN library</a> for deep
-learning (and in particular their fast convolution code). In order to
-use it, obtain the
-[cuDNN](http://devblogs.nvidia.com/parallelforall/accelerate-machine-learning-cudnn-deep-neural-network-library)
-library from NVIDIA (cuDNN v2 to v4 should work; however, later
-version are *strongly recommended* as earlier version had a few
-bugs). Make sure that the CUDA toolkit matches the one in cuDNN
-(e.g. 6.5). This often means that the CUDA toolkit will *not* match
-the one used internally by MATLAB, such that the
-[compilation method](#nvcc) discussed above must be used.
+learning (and in particular their fast convolution code). The current
+code supports the cuDNN 9.8 legacy API as well as older cuDNN releases.
+Make sure that the CUDA toolkit matches the cuDNN package. When using
+CUDA 12.8 and cuDNN 9.8, use the [`nvcc` compilation method](#nvcc).
+
+On Windows, unpack cuDNN so that the selected `<Cudnn>` root contains:
+
+     <Cudnn>/
+       bin/
+         cudnn*.dll
+       include/
+         cudnn.h
+         cudnn_version.h
+       lib/
+         x64/
+           cudnn.lib
+
+Compile CUDA 12.8 and cuDNN 9.8 support with:
+
+    > vl_compilenn('enableGpu', true, ...
+                   'cudaRoot', 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8', ...
+                   'cudaMethod', 'nvcc', ...
+                   'enableCudnn', true, ...
+                   'cudnnRoot', 'C:\local\cudnn-9.8', ...
+                   'verbose', 1)
+
+All cuDNN DLLs in `<Cudnn>/bin` are copied to `matlab/mex`
+automatically.
 
 Unpack the cuDNN library binaries and header files in a place
 `<Cudnn>` of you choice. In the rest of this example, it will be
@@ -208,7 +246,7 @@ directory structure on macOS should look like:
            libcudnn.dylib
          ...
 
-Use `vl_compilenn` with the `cudnnEnable,true` option to compile the
+Use `vl_compilenn` with the `enableCudnn,true` option to compile the
 library; do not forget to use `cudaMethod,nvcc` as, at it is likely,
 the CUDA toolkit version is newer than MATLAB's CUDA toolkit. For
 example, on macOS this may look like:
@@ -226,9 +264,8 @@ cuDNN libraries. On a Linux terminal, this may look like:
     $ cd <MatConvNet>
     $ LD_LIBRARY_PATH=/Developer/NVIDIA/CUDA-7.5/lib64:local matlab
 
-On Windows, copy the cuDNN DLL file `<Cudnn>/cudnn*dll` (or from
-wherever you unpacked cuDNN) into the `<MatConvNet>/matlab/mex`
-directory.
+On Windows, the build script copies the cuDNN DLL files into the
+`<MatConvNet>/matlab/mex` directory.
 
 On macOS, this step should not be necessary as the library paths are
 hardcoded during compilation.

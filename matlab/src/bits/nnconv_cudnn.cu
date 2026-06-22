@@ -161,14 +161,14 @@ struct ConvolutionForwardCudnn
 
     if (!op.context.getCudaHelper().cudnnConvolutionFwdSpecificAlgo) {
       // Determine algorithm automatically
-      CHECK(cudnnGetConvolutionForwardAlgorithm(handle,
-                                                dataDesc,
-                                                filterDesc,
-                                                convDesc,
-                                                outputDesc,
-                                                op.context.getCudaHelper().cudnnConvolutionFwdPreference,
-                                                op.context.getCudaHelper().cudnnConvolutionFwdWorkSpaceLimit,
-                                                &op.context.getCudaHelper().cudnnConvolutionFwdAlgo)) ;
+      CHECK(getCudnnConvolutionForwardAlgorithm(
+        handle,
+        dataDesc,
+        filterDesc,
+        convDesc,
+        outputDesc,
+        op.context.getCudaHelper().cudnnConvolutionFwdWorkSpaceLimit,
+        &op.context.getCudaHelper().cudnnConvolutionFwdAlgo)) ;
     }
 
     // Get workspace size
@@ -395,15 +395,14 @@ struct ConvolutionBackwardCudnn
 
     if (derFilter) {
       // Get filter derivatives algorithm
-      CHECK(cudnnGetConvolutionBackwardFilterAlgorithm
-            (handle,
-             dataDesc,
-             derOutputDesc,
-             convDesc,
-             filterDesc,
-             op.context.getCudaHelper().cudnnConvolutionBwdFilterPreference,
-             op.context.getCudaHelper().cudnnConvolutionBwdFilterWorkSpaceLimit,
-             &op.context.getCudaHelper().cudnnConvolutionBwdFilterAlgo)) ;
+      CHECK(getCudnnConvolutionBackwardFilterAlgorithm(
+        handle,
+        dataDesc,
+        derOutputDesc,
+        convDesc,
+        filterDesc,
+        op.context.getCudaHelper().cudnnConvolutionBwdFilterWorkSpaceLimit,
+        &op.context.getCudaHelper().cudnnConvolutionBwdFilterAlgo)) ;
 
       // Get workspace size
       CHECK(cudnnGetConvolutionBackwardFilterWorkspaceSize
@@ -419,15 +418,14 @@ struct ConvolutionBackwardCudnn
 
     if (derInput) {
       // Get data derivatives
-      CHECK(cudnnGetConvolutionBackwardDataAlgorithm
-            (handle,
-             filterDesc,
-             derOutputDesc,
-             convDesc,
-             dataDesc,
-             op.context.getCudaHelper().cudnnConvolutionBwdDataPreference,
-             op.context.getCudaHelper().cudnnConvolutionBwdDataWorkSpaceLimit,
-             &op.context.getCudaHelper().cudnnConvolutionBwdDataAlgo)) ;
+      CHECK(getCudnnConvolutionBackwardDataAlgorithm(
+        handle,
+        filterDesc,
+        derOutputDesc,
+        convDesc,
+        dataDesc,
+        op.context.getCudaHelper().cudnnConvolutionBwdDataWorkSpaceLimit,
+        &op.context.getCudaHelper().cudnnConvolutionBwdDataAlgo)) ;
 
       // Get workspace size
       CHECK(cudnnGetConvolutionBackwardDataWorkspaceSize
@@ -538,6 +536,5 @@ struct ConvolutionBackwardCudnn
   }
 
   } ;
-
 
 
